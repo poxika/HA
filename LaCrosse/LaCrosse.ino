@@ -5,21 +5,16 @@
   and http://kjordahl.net/weather.html
 
 */
+
 //#define DEBUG 1
+#define SMALLEST_ONE_PULSE    400
+#define LARGEST_ONE_PULSE     700
 
-const int inputCapturePin = 8;
-const int greenLedPin     = 6;
-const int redLedPin       = 7;
-
-#define SMALLEST_ONE_PULSE    450
-#define LARGEST_ONE_PULSE     600
-
-#define SMALLEST_ZERO_PULSE  1200
+#define SMALLEST_ZERO_PULSE  1000
 #define LARGEST_ZERO_PULSE   1500
- 
+ 
 #define IS_ZERO(l)  ((l > SMALLEST_ZERO_PULSE ) && (l < LARGEST_ZERO_PULSE))
 #define IS_ONE(l)   ((l > SMALLEST_ONE_PULSE) && (l <  LARGEST_ONE_PULSE))
-
 
 
 const int prescale = 8;            // prescale factor (each tick 0.5 us @16MHz)
@@ -27,19 +22,23 @@ const byte prescaleBits = B010;    // tick is 0.5 us overflows in 65.536 ms
 // calculate time per counter tick in ns
 const long  precision = (1000000/(F_CPU/1000)) * prescale  ;   
 
+
+const int inputCapturePin = 8;
+const int greenLedPin     = 6;
+const int redLedPin       = 7;
 #ifdef DEBUG
 // To store pulse metrics
 const int numberOfEntries  = 128;    // the max number of pulses to measure
-volatile byte index = 0;             // index to the stored readings
-volatile unsigned int results[numberOfEntries]; // note this is 16 bit value
+volatile unsigned long results[numberOfEntries]; // note this is 32 bit value
 #endif
 
-volatile unsigned int timeValue;
+volatile byte index = 0;             // index to the stored readings
+volatile unsigned long timeValue;
 volatile unsigned int packetReady = 0;
 volatile unsigned int overflows;
 volatile unsigned int readByte;
 volatile unsigned int state;
-volatile unsigned int errorCount;
+volatile unsigned int count;
 byte packet[5];
 byte finishedPacket[5];
 volatile int bitCount = 0;
@@ -54,35 +53,47 @@ volatile int maxOne;
 // temperature
 #define TO_F(t) (t*9/5 + 32)
 
+
 /* Overflow interrupt vector */
-ISR(TIMER1_OVF_vect){                 // here if no input pulse detected
-   overflows++;                       // incriment overflow count  
+ISR(TIMER1_OVF_vect){                 
+   overflows++;                       // increment overflow count  
 }
 
 /* ICR interrupt vector */
 ISR(TIMER1_CAPT_vect)
 {
   volatile long pulseLength;
-  TCNT1 = 0;                            // reset the counter
-  timeValue = ICR1;                     // grab the timer value
-  if(bitRead(TCCR1B ,ICES1) == false)   // falling edge detected
+  TCNT1 = 0;                               // reset the counter
+  timeValue = ICR1 + (overflows * 0xffff); // grab the timer value and add overflows
+  overflows = 0;
+
+  if((bitRead(TCCR1B ,ICES1) == false) && (timeValue > 600))   // falling edge detected
   {
-    int val;
     pulseLength = (timeValue * precision)/1000;
+    #ifdef DEBUG
+    if(index < numberOfEntries)   
+       results[index++] = pulseLength ;
+    #endif
+    
     if IS_ZERO(pulseLength) { // Got a zero
        readByte = readByte << 1;
-       if (pulseLength < minZero)
-         minZero = pulseLength;
-       if (pulseLength > maxZero)
-         maxZero = pulseLength;   
+       if (state>0){
+         
+         if (pulseLength < minZero)
+           minZero = pulseLength;
+         if (pulseLength > maxZero)
+           maxZero = pulseLength;   
+       }
        bitCount ++;
-    } else if IS_ONE(pulseLength) { // got one
+    } else if IS_ONE(pulseLength) { // got one  
       readByte = readByte << 1;
       readByte = readByte | 1;
-      if (pulseLength < minOne)
-        minOne = pulseLength;
-      if (pulseLength > maxOne)
-        maxOne = pulseLength;   
+      if (state>0){
+        if (pulseLength < minOne)
+          minOne = pulseLength;
+        if (pulseLength > maxOne)
+          maxOne = pulseLength;   
+      }
       bitCount ++;
     } else { // drop 
       readByte = 0;
@@ -97,6 +108,7 @@ ISR(TIMER1_CAPT_vect)
       state = 1;
       bitCount = 8;
       digitalWrite(redLedPin, LOW);
+      digitalWrite(greenLedPin, HIGH);
     }
     if ((state == 1) && (bitCount == 16)) { // got sensor address
       state = 2;
@@ -116,32 +128,29 @@ ISR(TIMER1_CAPT_vect)
       packetReady=1;
       digitalWrite(greenLedPin, HIGH);
       memcpy(&finishedPacket,&packet,5);
-      errorCount=0;
     }
-    #ifdef DEBUG
-    if(index < numberOfEntries)
-    {      
-       results[index] = pulseLength ;
-       index++;
-    } 
-    #endif
   }
-
+  count ++;
   TCCR1B ^= _BV(ICES1);            // toggle bit to trigger on the other edge
 }
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(38400);
   pinMode(greenLedPin, OUTPUT); 
   pinMode(redLedPin, OUTPUT); 
+  initRF();
+}
+void initRF() {
   pinMode(inputCapturePin, INPUT); // ICP pin (digital pin 8 on Arduino) as input
-
+//  PORTB &= ~(1<<PORTB0);
+  
   TCCR1A = 0 ;                    // Normal counting mode
   TCCR1B = prescaleBits ;         // set prescale bits
+
   TCCR1B |= _BV(ICES1);           // enable input capture
+//  TCCR1B |= _BV(ICNC1);
   bitSet(TIMSK1,ICIE1);           // enable input capture interrupt for timer 1 
-  bitSet(TIMSK1,TOIE1);           // enable overflow interrupt to detect missing input pulses
-  
+  bitSet(TIMSK1,TOIE1);           // enable overflow interrupt to detect longer pulses
 }
 
 float getT(byte h, byte l){
@@ -163,6 +172,30 @@ float getH(byte h, byte l){
   return value;
 }
 
+boolean isValid(byte *p){
+  byte s=0;
+  byte old = p[4] & 0x0f;
+  for (byte i=0; i<4; i++){
+    s = s + (p[i]>>4) + (p[i] & 0x0f);
+  }
+  s = s + (p[4]>>4);
+  s = s & 0x0f;
+  byte hh = p[2];
+  byte ll = (p[3]<<4) | (p[4]>>4);
+  if ((s==old) && (hh == ll))
+    return 1;
+  else
+    return 0;
+}
+
+void printT(float t){
+  Serial.print("Temperature :");
+  Serial.print(t);
+  Serial.print(" C / ");
+  Serial.print(TO_F(t));
+  Serial.println(" F");
+}
+
 void loop() 
 {
   delay(1000);
@@ -175,31 +208,36 @@ void loop()
       Serial.print(" ");
     }
     Serial.println("");
-    if (finishedPacket[0] == 0xA0){
-      value = getT(finishedPacket[2],finishedPacket[3]);
-      Serial.print("Temperature :");
-      Serial.print(value);
-      Serial.print(" C / ");
-      Serial.print(TO_F(value));
-      Serial.println(" F");
-    } 
-    if (finishedPacket[0] == 0xAE){
-      value = getH(finishedPacket[2],finishedPacket[3]);
-     Serial.print("Humidity :");
-     Serial.println(value);
-    } 
+    if (isValid(finishedPacket) == 1) {
+      if (finishedPacket[0] == 0xA0){
+        value = getT(finishedPacket[2],finishedPacket[3]);
+        printT(value);
+      } 
+      if (finishedPacket[0] == 0xAE){
+        value = getH(finishedPacket[2],finishedPacket[3]);
+       Serial.print("Humidity :");
+       Serial.println(value);
+      } 
+    } else 
+      Serial.println("Invalid Checksum");
     packetReady=0;
     digitalWrite(greenLedPin, LOW);
+ 
   }
   #ifdef DEBUG
-  Serial.print("Min 0: ");
+  Serial.print("Count: ");
+  Serial.print(count);
+  Serial.print(" Index: ");
+  Serial.print(index);
+  Serial.print(" Min 0: ");
   Serial.print(minZero);
   Serial.print(" Max 0: ");
   Serial.print(maxZero);
-    Serial.print(" Min 1: ");
+  Serial.print(" Min 1: ");
   Serial.print(minOne);
   Serial.print(" Max 1: ");
   Serial.println(maxOne);
+ 
   if (index > 0){
     for( byte i=0; i < index; i++)
     {
@@ -211,8 +249,8 @@ void loop()
        } else
          Serial.println("");
     }
-    index = 0;
-    overflows = 0;
   }
   #endif
+  index = 0;
+  count = 0;
 }

@@ -5,7 +5,7 @@
 
 // Data wire is plugged into port 2 on the Arduino
 #define ONE_WIRE_BUS 2
-#define LED 8
+#define LED 5
 
 // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 OneWire oneWire(ONE_WIRE_BUS);
@@ -23,7 +23,7 @@ byte mac[] = {
 EthernetClient client;
 
 long lastConnectionTime = 0;        // last time you connected to the server, in milliseconds
-const int postingInterval = 20000;  // update every 20s
+const int postingInterval = 30000;  // update every 20s
 
 void setup(void)
 {
