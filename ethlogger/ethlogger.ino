@@ -14,8 +14,6 @@
 
 // PIN definitions
 #define ONE_WIRE_BUS 2
-#define GREEN_LED  6
-#define RED_LED  7
 
 // Pachube definitions
 #define FEED "52915" 
@@ -52,39 +50,31 @@ void setup(void) {
   sensors.begin();
   // resolution of 9 is 0.5C, 10 is 0.2/0.3C
   sensors.setResolution(onboard_temp_sensor, 10);
-  
-  pinMode(GREEN_LED, OUTPUT);
-  pinMode(RED_LED, OUTPUT);
-  
-  digitalWrite(GREEN_LED, LOW);
-  digitalWrite(RED_LED, LOW);
-  
+    
   // initialize Pachube client
   // to test the output, just pass Serial
   // cosm.init(&Serial);
   cosm.init(&eth);
   
   // Pass a buffer of 10 char to store the values
-  onboard = client.add_stream("t1","1234567890");
+  onboard = cosm.add_stream("t1","1234567890");
   
   int success = 0;
   for (;success==0;){
     Serial.println("Configuring Ethernet");
     if (Ethernet.begin(mac) == 0) {
       Serial.println("Failed to configure Ethernet using DHCP Trying again");
-      digitalWrite(RED_LED, HIGH);
       // Maybe the network is restarting, wait for 1 min
       delay(60000L);
     } else {
       success = 1;
-      digitalWrite(RED_LED, LOW);
+
     }
   }
 }
 
 void loop() {
   delay(1000);
-  digitalWrite(GREEN_LED, LOW);
   if (millis() - last_connection_time > posting_interval) {
     Serial.println("reading Temp");
     // get sensor readings
@@ -93,7 +83,6 @@ void loop() {
     
     if (eth.connect(HOST, 80)) {
       Serial.println("sending Temp");
-      digitalWrite(GREEN_LED, HIGH);
       cosm.send();
       // may need to read response to check return code.
       Serial.println("Disconnecting ...");
