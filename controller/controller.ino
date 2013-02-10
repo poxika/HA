@@ -28,7 +28,9 @@
 
 int onboard_value; // onboard temp value
 int restarts_value; // number of restarts
+int errors_value;
 int res;
+int errors;
 
 long last_connection_time = 0;     // last time you connected to the server, in milliseconds
 
@@ -79,10 +81,12 @@ void setup(void) {
   
   // Pass a buffer of 10 char to store the values
   onboard_value = poxika.add("t1","1234567890");
-//  restarts_value = poxika.add("e1","1234567890");
+  restarts_value = poxika.add("e1","0987654321");
+  errors_value = poxika.add("e2","0000000000");
 
   
   restarts = 0;
+  errors = 0;
   Serial.println("Configuring Ethernet");
   Ethernet.begin(mac,ip);
   delay(ONE_SECOND);
@@ -97,7 +101,9 @@ void loop() {
     Serial.println("reading Temp");
     sensors.requestTemperatures();
     res = poxika.update(onboard_value, sensors.getTempC(onboard_temp_sensor));
-//    res = poxika.update(restarts_value, restarts);
+    res = poxika.update(restarts_value, restarts);
+    if (errors<0) errors=0;
+    res = poxika.update(errors_value, errors);
     
     // sending
     if (eth.connect(HOST, 80)) {
@@ -111,10 +117,12 @@ void loop() {
       eth.stop();
       if (result == 200){
         restarts = 0;
+        errors = 0;
       }
     } 
     else {
       Serial.println("connection failed");
+      errors +=1;
       restart_delay = ONE_HOUR + (ONE_HOUR * (restarts * restarts));
       if ((millis() - last_connection_time) > restart_delay){
         Serial.println("Restarting ...");

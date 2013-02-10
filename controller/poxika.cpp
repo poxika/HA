@@ -89,6 +89,20 @@ bool Poxika::update(unsigned int id, float f){
   }else
     return false;
 }
+bool Poxika::update(unsigned int id, int i){
+  if (id >= 0  && id < nb_ ){
+     itoa(i,streams_[id].value,10);
+     return true;
+  }else
+    return false;
+}
+bool Poxika::update(unsigned int id, unsigned int i){
+  if (id >= 0  && id < nb_ ){
+     itoa(i,streams_[id].value,10);
+     return true;
+  }else
+    return false;
+}
 size_t Poxika::write(uint8_t c){
   return serial_->write(c);
 }

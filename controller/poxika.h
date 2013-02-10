@@ -24,6 +24,8 @@ class Poxika : public Stream {
     void init(Stream *serial);
     int add(char *id, char *buff);
     bool update(unsigned int id, float f);
+    bool update(unsigned int id, int i);
+    bool update(unsigned int id, unsigned int i);
     int send(const char *host);
     long getTime(const char *host);
     virtual size_t write(uint8_t c);
