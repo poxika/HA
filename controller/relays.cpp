@@ -37,13 +37,11 @@ void Relays::allOn()
   }
 }
 
-void Relays::sequence(long d){
+void Relays::sequence(long d, int seq[]){
   allOff();
-  on(4);
-  delay(d);
-  on(3);
-  delay(d);
-  on(2);
-  delay(d);
-  on(1);
+  for (int i =0; i < 4; i++)
+  {
+    on(seq[i]);
+    delay(d);
+  }
 }

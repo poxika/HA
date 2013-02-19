@@ -10,6 +10,6 @@ public:
     void allOff();
     void on(int relay);
     void off(int relay);
-    void sequence(long d);
+    void sequence(long d, int seq[]);
 };
 #endif

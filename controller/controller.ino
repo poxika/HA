@@ -6,6 +6,7 @@
 #include <util.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <EEPROM.h>
 
 #include "poxika.h"
 #include "relays.h"
@@ -24,15 +25,20 @@
 #define ONE_MINUTE 60000UL
 #define ONE_HOUR 3600000UL
 
-
+#define COMCAST 4
+#define ATT 3
+#define LINKSYS 2
+#define UNUSED 1
 
 int onboard_value; // onboard temp value
 int restarts_value; // number of restarts
 int errors_value;
 int res;
-int errors;
+int seq[4] = {COMCAST,ATT,LINKSYS,UNUSED};
 
-long last_connection_time = 0;     // last time you connected to the server, in milliseconds
+
+unsigned long last_connection_time = 0;     // last time you connected to the server, in milliseconds
+unsigned long last_restart_time = 0;     // last time you connected to the server, in milliseconds
 
 const long posting_interval = THIRTY_SECONDS;  // update every 30s
 
@@ -47,6 +53,8 @@ DallasTemperature sensors(&oneWire);
 // Relays initialization
 Relays relays;
 
+unsigned char init_count;
+
 // onboard sensor address is 10 2F FB 21 00 00 00 40
 DeviceAddress onboard_temp_sensor = { 0x10, 0x2F, 0xFB, 0x21, 0x00, 0x00, 0x00, 0x40};
 
@@ -60,13 +68,21 @@ Poxika poxika(FEED,KEY);
 
 unsigned int restarts;
 unsigned long restart_delay;
+unsigned int connection_errors;
+
 
 void setup(void) {
   Serial.begin(9600);
   
+  init_count = EEPROM.read(0);
+  Serial.print("Init Count ");
+  Serial.println(init_count);
+  if (init_count > 254) init_count =0;
+  EEPROM.write(0,++init_count);
+  
   Serial.println("Starting devices");
   // startup the relays
-  relays.sequence(ONE_MINUTE); 
+  relays.sequence(ONE_MINUTE, seq); 
   Serial.println("All devices started");
   
   // initialize DS1820 sensors
@@ -86,53 +102,63 @@ void setup(void) {
 
   
   restarts = 0;
-  errors = 0;
+  connection_errors = 0;
   Serial.println("Configuring Ethernet");
   Ethernet.begin(mac,ip);
   delay(ONE_SECOND);
 }
 
 void loop() {
-  
   delay(ONE_SECOND);
-  
+
   if (millis() - last_connection_time > posting_interval) {
-    // updating sensors
+    
+    // updating metrics
     Serial.println("reading Temp");
     sensors.requestTemperatures();
     res = poxika.update(onboard_value, sensors.getTempC(onboard_temp_sensor));
+    
+    //updating counters
     res = poxika.update(restarts_value, restarts);
-    if (errors<0) errors=0;
-    res = poxika.update(errors_value, errors);
+    if (connection_errors<0) connection_errors=0;
+    res = poxika.update(errors_value, connection_errors);
     
     // sending
+    Serial.println("Connecting ...");
     if (eth.connect(HOST, 80)) {
-      last_connection_time = millis();
       
-      Serial.println("sending Temp");
+      
+      Serial.println("sending ...");
       int result = poxika.send(HOST);
       Serial.print("Return code is ");
       Serial.println(result);
       Serial.println("Disconnecting ...");
       eth.stop();
       if (result == 200){
+        last_connection_time = millis();
         restarts = 0;
-        errors = 0;
+        connection_errors = 0;
+      } else {
+       connection_errors += 1;
       }
-    } 
+    }
     else {
       Serial.println("connection failed");
-      errors +=1;
-      restart_delay = ONE_HOUR + (ONE_HOUR * (restarts * restarts));
-      if ((millis() - last_connection_time) > restart_delay){
-        Serial.println("Restarting ...");
-        // adding more delay to try to solve potential issues
-        relays.sequence(ONE_MINUTE+(TEN_SECONDS * restarts));
-        restarts += 1; 
-        Serial.println("Restarted");
-      }
+      connection_errors += 1;
       delay(ONE_MINUTE);
     }
+  }
+  // Restart if no connection
+  restart_delay = ONE_HOUR + (ONE_HOUR * (restarts * restarts));
+  // ((millis() - last_restart_time) > (ONE_HOUR * 24))
+  if (((millis() - last_connection_time) > restart_delay))
+  {
+     last_restart_time = millis();
+     Serial.println("Restarting ...");
+     // adding more delay to try to solve potential issues
+     relays.sequence(ONE_MINUTE+(TEN_SECONDS * restarts),seq);
+     restarts += 1; 
+     Serial.println("Restarted");
   }
 }
 
