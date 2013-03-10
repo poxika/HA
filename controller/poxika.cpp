@@ -3,7 +3,7 @@
 
 #include "poxika.h"
 
-char send_buffer[100];
+char send_buffer[150];
 
 Poxika::Poxika(const char *feed, const char *key) : key_(key), feed_(feed)
 {}
@@ -35,7 +35,7 @@ int Poxika::send(const char *host){
     strcat(send_buffer,streams_[i].value);
     strcat(send_buffer,"\r\n"); 
   }
-//  Serial.println(send_buffer);
+
   serial_->print("PUT /v2/feeds/");
   serial_->print(feed_);
   serial_->println(" HTTP/1.1");

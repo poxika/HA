@@ -41,7 +41,7 @@ void Relays::sequence(long d, int seq[]){
   allOff();
   for (int i =0; i < 4; i++)
   {
-    on(seq[i]);
     delay(d);
+    on(seq[i]);
   }
 }

@@ -2,7 +2,7 @@
 #define poxika_h
 #include "Arduino.h"
 
-#define MAX_DATASTREAMS_NUM  3
+#define MAX_DATASTREAMS_NUM  4
 
 struct data
 {
